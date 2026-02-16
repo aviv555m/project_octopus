@@ -1712,7 +1712,7 @@ class SquidRobotBrain:
         ans = clean_control_chars(ans).strip()
         return ans
 
-        def reply(self, user_text: str) -> Dict[str, Any]:
+    def reply(self, user_text: str) -> Dict[str, Any]:
         user = clean_control_chars(user_text).strip()
         if not user:
             return {"text": "", "route": "GENERAL", "used_web": False, "web_provider": "none", "sources": []}
