@@ -89,6 +89,8 @@ MUSIC_DOMAINS = {
     "www.allmusic.com",
     "discogs.com",
     "www.discogs.com",
+    "https://genius.com/",
+    "genius.com",
 }
 
 # -----------------------------
