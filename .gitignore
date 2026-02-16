@@ -18,8 +18,8 @@ Thumbs.db
 !.gitignore
 !README.md
 !requirements.txt
-squid_memory.json
-squid_ai_v2.py
-squid_server.py
-web2.py
+!squid_memory.json
+!squid_ai_v2.py
+!squid_server.py
+!web2.py
 !squid_memory_public.json

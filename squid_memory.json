@@ -1,0 +1,218 @@
+{
+  "profile": {
+    "name": "Etho",
+    "project": null,
+    "prefers_short_answers": false,
+    "tone": null,
+    "likes_stories": false,
+    "likes_technical_detail": false
+  },
+  "history": {
+    "THERAPY": [
+      {
+        "role": "user",
+        "content": "i got a boyfriend and he dosnt love me"
+      },
+      {
+        "role": "assistant",
+        "content": "That must be really tough for you. It sounds like you're feeling hurt and unsure about your feelings right now.\n\nIs there anything in particular that's making it hard for you to see things as positive with your boyfriend, or is it more of a feeling of uncertainty?"
+      }
+    ],
+    "GENERAL": [
+      {
+        "role": "user",
+        "content": "hi!"
+      },
+      {
+        "role": "assistant",
+        "content": "Hello there! How can I help you today?"
+      },
+      {
+        "role": "user",
+        "content": "my name is etho! and i want to talk with you!"
+      },
+      {
+        "role": "assistant",
+        "content": "Hi Etho! What would you like to chat about or what do you need help with today?"
+      },
+      {
+        "role": "user",
+        "content": "do you know the band lovejoy?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes, Lovejoy has released several albums including \"One Simple Trick\" and \"And It's Love!\". They also have a discography available on Discogs."
+      },
+      {
+        "role": "user",
+        "content": "well \"one simple trick\" is a real album they have. but \"and its love!\" is not"
+      },
+      {
+        "role": "assistant",
+        "content": "\"And Its Love\" does not appear to be an actual song title, in contrast to the existence of the album titled \"One Simple Trick.\" (Not fully sure.)"
+      },
+      {
+        "role": "user",
+        "content": "lets talk"
+      },
+      {
+        "role": "assistant",
+        "content": "Sure thing, Etho! What topic would you like to chat about?"
+      },
+      {
+        "role": "user",
+        "content": "can we talk abot something else?"
+      },
+      {
+        "role": "assistant",
+        "content": "Of course, Etho! Let's chat about something else. How about sharing a fun fact? What do you find interesting in the world?"
+      },
+      {
+        "role": "user",
+        "content": "i like dinosaurs"
+      },
+      {
+        "role": "assistant",
+        "content": "Oh, dinosaurs! That's fascinating. They were such amazing creatures. Did you know that some dinosaurs could grow quite large, or they had really cool features like spines on their backs? What’s your favorite dinosaur fact?"
+      },
+      {
+        "role": "user",
+        "content": "my favorite fact has to be that the spinasaurs was the biggest carnivor on land"
+      },
+      {
+        "role": "assistant",
+        "content": "That's a fantastic fact! Spinosaurs were indeed some of the largest and fiercest meat-eating dinosaurs. They had those unique spines that made their backs look like a skirt or a sail. What other dinosaur facts are you curious about?"
+      },
+      {
+        "role": "user",
+        "content": "hello"
+      },
+      {
+        "role": "assistant",
+        "content": "Hello there! How can I assist you today?"
+      }
+    ],
+    "CREATIVE": []
+  },
+  "auto_notes": [
+    "User name is Etho."
+  ],
+  "autonotes_enabled": true,
+  "corrections": [],
+  "tts_enabled": true,
+  "tts_voice_id": null,
+  "tts_rate": 175,
+  "web_aliases": {
+    "q:do you know the band lovejoy": "ent:band lovejoy",
+    "q:well \"one simple trick\" is a real album they have. but \"and its love!\" is not": "topic:well \"one simple trick\" is a real album they have. but \"and its love!\" is not",
+    "q:i like dinosaurs": "topic:dinosaurs",
+    "q:my favorite fact has to be that the spinasaurs was the biggest carnivor on land": "topic:spinasaurs"
+  },
+  "dream_smp_facts": [],
+  "last_user": "hello",
+  "last_assistant": "Hello there! How can I assist you today?",
+  "last_route": "GENERAL",
+  "last_entity": "is and it's love! an actual checker music album?' or simply 'did one simple trick have this album",
+  "recent_topics": [
+    "band lovejoy",
+    "is and it's love! an actual checker music album?' or simply 'did one simple trick have this album"
+  ],
+  "all_history": [
+    {
+      "role": "user",
+      "content": "hi!"
+    },
+    {
+      "role": "assistant",
+      "content": "Hello there! How can I help you today?"
+    },
+    {
+      "role": "user",
+      "content": "my name is etho! and i want to talk with you!"
+    },
+    {
+      "role": "assistant",
+      "content": "Hi Etho! What would you like to chat about or what do you need help with today?"
+    },
+    {
+      "role": "user",
+      "content": "do you know the band lovejoy?"
+    },
+    {
+      "role": "assistant",
+      "content": "Yes, Lovejoy has released several albums including \"One Simple Trick\" and \"And It's Love!\". They also have a discography available on Discogs."
+    },
+    {
+      "role": "user",
+      "content": "well \"one simple trick\" is a real album they have. but \"and its love!\" is not"
+    },
+    {
+      "role": "assistant",
+      "content": "\"And Its Love\" does not appear to be an actual song title, in contrast to the existence of the album titled \"One Simple Trick.\" (Not fully sure.)"
+    },
+    {
+      "role": "user",
+      "content": "lets talk"
+    },
+    {
+      "role": "assistant",
+      "content": "Sure thing, Etho! What topic would you like to chat about?"
+    },
+    {
+      "role": "user",
+      "content": "i got a boyfriend and he dosnt love me"
+    },
+    {
+      "role": "assistant",
+      "content": "That must be really tough for you. It sounds like you're feeling hurt and unsure about your feelings right now.\n\nIs there anything in particular that's making it hard for you to see things as positive with your boyfriend, or is it more of a feeling of uncertainty?"
+    },
+    {
+      "role": "user",
+      "content": "can we talk abot something else?"
+    },
+    {
+      "role": "assistant",
+      "content": "Of course, Etho! Let's chat about something else. How about sharing a fun fact? What do you find interesting in the world?"
+    },
+    {
+      "role": "user",
+      "content": "i like dinosaurs"
+    },
+    {
+      "role": "assistant",
+      "content": "Oh, dinosaurs! That's fascinating. They were such amazing creatures. Did you know that some dinosaurs could grow quite large, or they had really cool features like spines on their backs? What’s your favorite dinosaur fact?"
+    },
+    {
+      "role": "user",
+      "content": "my favorite fact has to be that the spinasaurs was the biggest carnivor on land"
+    },
+    {
+      "role": "assistant",
+      "content": "That's a fantastic fact! Spinosaurs were indeed some of the largest and fiercest meat-eating dinosaurs. They had those unique spines that made their backs look like a skirt or a sail. What other dinosaur facts are you curious about?"
+    },
+    {
+      "role": "user",
+      "content": "hello"
+    },
+    {
+      "role": "assistant",
+      "content": "Hello there! How can I assist you today?"
+    }
+  ],
+  "awaiting_correction": false,
+  "last_question_for_correction": null,
+  "last_answer_for_correction": null,
+  "web_cache": {
+    "ent:band lovejoy": {
+      "ts": 1771267971.057025,
+      "key": "ent:band lovejoy",
+      "answer": "Yes, Lovejoy has released several albums including \"One Simple Trick\" and \"And It's Love!\". They also have a discography available on Discogs.",
+      "sources": [
+        "https://www.discogs.com/release/35277988-Lovejoy-One-Simple-Trick",
+        "https://www.discogs.com/release/31049912-Lovejoy--And-Its-Love",
+        "https://musicbrainz.org/release/4ea00298-4f4c-4a7d-9bee-e8272b328cd2"
+      ],
+      "topic": null
+    }
+  }
+}
