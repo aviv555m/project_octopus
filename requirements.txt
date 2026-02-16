@@ -1,0 +1,9 @@
+ollama
+ddgs
+pyttsx3
+requests
+fastapi
+pydantic
+uvicorn
+flask
+pywin32
