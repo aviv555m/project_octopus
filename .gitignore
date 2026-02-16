@@ -15,11 +15,12 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.json
+web2.py
+squid_ai_v2.py
+squid_server.py
+squid_memory.json
+README.md
 !.gitignore
-!README.md
+!README_PUBLIC.md
 !requirements.txt
-!squid_memory.json
-!squid_ai_v2.py
-!squid_server.py
-!web2.py
 !squid_memory_public.json
