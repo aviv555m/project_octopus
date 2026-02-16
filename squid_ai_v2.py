@@ -79,6 +79,9 @@ ALLOW_WIKIPEDIA_LAST_RESORT = True
 SERPAPI_ENDPOINT = "https://serpapi.com/search"
 SERPAPI_API_KEY_DEFAULT = ""  # optional baked-in key; env var overrides: SERPAPI_API_KEY
 
+# Minecraft wiki preference
+MINECRAFT_WIKI_DOMAINS = {"minecraft.wiki", "www.minecraft.wiki"}
+
 
 # -----------------------------
 # Prompts
@@ -259,6 +262,9 @@ DREAM_SMP_PAT = re.compile(
     re.IGNORECASE,
 )
 
+# Minecraft topic trigger
+MINECRAFT_PAT = re.compile(r"\b(minecraft|mine\s*craft|mc)\b", re.IGNORECASE)
+
 
 def safety_message() -> str:
     return (
@@ -358,6 +364,31 @@ def _strip_sources_like_text(ans: str) -> str:
     # Remove inline "(source: ...)" patterns
     a = re.sub(r"\(\s*source\s*:\s*https?://[^\)]+\)", "", a, flags=re.I).strip()
     return a
+
+
+def _is_minecraft_topic(text: str, mem: Optional["Memory"] = None) -> bool:
+    if MINECRAFT_PAT.search(text):
+        return True
+    if mem is not None:
+        if mem.last_entity == "minecraft":
+            return True
+        if "minecraft" in mem.recent_topics:
+            return True
+    return False
+
+
+def _filter_results_by_domain(results: List[Dict[str, str]], allow_domains: set[str]) -> List[Dict[str, str]]:
+    out: List[Dict[str, str]] = []
+    for r in results:
+        url = r.get("url", "")
+        h = _host(url)
+        if not h:
+            continue
+        for d in allow_domains:
+            if h == d or h.endswith("." + d):
+                out.append(r)
+                break
+    return out
 
 
 # -----------------------------
@@ -513,6 +544,7 @@ class Memory:
 
     auto_notes: List[str] = field(default_factory=list)
     autonotes_enabled: bool = True
+    corrections: List[str] = field(default_factory=list)
 
     # Web answers remembered here
     web_cache: Dict[str, WebCacheEntry] = field(default_factory=dict)
@@ -528,6 +560,15 @@ class Memory:
     last_route: Optional[str] = None
     last_entity: Optional[str] = None
     recent_topics: List[str] = field(default_factory=list)
+
+    # Global chat history (across routes)
+    all_history: List[Dict[str, str]] = field(default_factory=list)
+    max_turns_all: int = 14  # pairs
+
+    # Correction flow
+    awaiting_correction: bool = False
+    last_question_for_correction: Optional[str] = None
+    last_answer_for_correction: Optional[str] = None
 
     # Settings
     tts_enabled: bool = False
@@ -554,6 +595,7 @@ class Memory:
 
         self.auto_notes = data.get("auto_notes", []) or []
         self.autonotes_enabled = bool(data.get("autonotes_enabled", True))
+        self.corrections = data.get("corrections", []) or []
 
         self.tts_enabled = bool(data.get("tts_enabled", False))
         self.tts_voice_id = data.get("tts_voice_id")
@@ -567,6 +609,10 @@ class Memory:
         self.last_route = data.get("last_route")
         self.last_entity = data.get("last_entity")
         self.recent_topics = data.get("recent_topics", []) or []
+        self.all_history = data.get("all_history", []) or []
+        self.awaiting_correction = bool(data.get("awaiting_correction", False))
+        self.last_question_for_correction = data.get("last_question_for_correction")
+        self.last_answer_for_correction = data.get("last_answer_for_correction")
 
         self.web_cache = {}
         raw_cache = data.get("web_cache", {}) or {}
@@ -591,6 +637,7 @@ class Memory:
             "history": self.history,
             "auto_notes": self.auto_notes,
             "autonotes_enabled": self.autonotes_enabled,
+            "corrections": self.corrections,
             "tts_enabled": self.tts_enabled,
             "tts_voice_id": self.tts_voice_id,
             "tts_rate": self.tts_rate,
@@ -601,6 +648,10 @@ class Memory:
             "last_route": self.last_route,
             "last_entity": self.last_entity,
             "recent_topics": self.recent_topics,
+            "all_history": self.all_history,
+            "awaiting_correction": self.awaiting_correction,
+            "last_question_for_correction": self.last_question_for_correction,
+            "last_answer_for_correction": self.last_answer_for_correction,
             "web_cache": {
                 k: {
                     "ts": v.ts,
@@ -622,6 +673,12 @@ class Memory:
         if len(self.history[route]) > max_msgs:
             self.history[route] = self.history[route][-max_msgs:]
 
+        self.all_history.append({"role": "user", "content": user})
+        self.all_history.append({"role": "assistant", "content": assistant})
+        max_all = self.max_turns_all * 2
+        if len(self.all_history) > max_all:
+            self.all_history = self.all_history[-max_all:]
+
 
 def add_auto_note(mem: Memory, note: str) -> None:
     note = note.strip()
@@ -630,6 +687,15 @@ def add_auto_note(mem: Memory, note: str) -> None:
     mem.auto_notes.append(note)
     if len(mem.auto_notes) > 60:
         mem.auto_notes = mem.auto_notes[-60:]
+
+
+def add_correction(mem: Memory, correction: str) -> None:
+    correction = correction.strip()
+    if not correction or correction in mem.corrections:
+        return
+    mem.corrections.append(correction)
+    if len(mem.corrections) > 80:
+        mem.corrections = mem.corrections[-80:]
 
 
 def update_recent_context(
@@ -648,6 +714,13 @@ def update_recent_context(
         ent_key = normalize_text_key(ent)
         mem.last_entity = ent_key
         mem.recent_topics.append(ent_key)
+        if len(mem.recent_topics) > 12:
+            mem.recent_topics = mem.recent_topics[-12:]
+
+    # Track Minecraft as a topic even when no explicit entity extraction happens
+    if _is_minecraft_topic(user_text, mem):
+        mem.last_entity = "minecraft"
+        mem.recent_topics.append("minecraft")
         if len(mem.recent_topics) > 12:
             mem.recent_topics = mem.recent_topics[-12:]
 
@@ -698,6 +771,18 @@ def learn_from_user(mem: Memory, text: str) -> None:
         mem.profile.project = "squid companion robot"
         if mem.autonotes_enabled:
             add_auto_note(mem, "User is building a squid companion robot.")
+
+    # Corrections / learning
+    m = re.search(r"\b(actually|no|nah|not exactly|correction)[:,]?\s*(.+)$", t, re.IGNORECASE)
+    if m:
+        correction = m.group(2).strip()
+        if len(correction) >= 6:
+            add_correction(mem, correction)
+    m = re.search(r"\bremember\s+that\s+(.+)$", t, re.IGNORECASE)
+    if m:
+        correction = m.group(1).strip()
+        if len(correction) >= 6:
+            add_correction(mem, correction)
 
 
 # -----------------------------
@@ -818,6 +903,8 @@ def rule_web_decider(text: str) -> Optional[Dict[str, Any]]:
         return {"use_web": False, "query": "", "reason": "assistant_personal"}
     if try_solve_math(text) is not None:
         return {"use_web": False, "query": "", "reason": "math"}
+    if _is_minecraft_topic(text):
+        return {"use_web": True, "query": text, "reason": "minecraft_wiki"}
     # obvious factual prompts
     if re.match(r"^(who is|what is|tell me about|when was|where is|what happened|what happened to)\b", t):
         ent = extract_entity_like(text) or t
@@ -1146,6 +1233,9 @@ def build_messages(system_prompt: str, mem: Memory, route: Route, user_text: str
     if mem.auto_notes:
         notes = mem.auto_notes[-10:]
         msgs.append({"role": "system", "content": "Auto-notes:\n- " + "\n- ".join(notes)})
+    if mem.corrections:
+        corr = mem.corrections[-10:]
+        msgs.append({"role": "system", "content": "User corrections (treat as truth):\n- " + "\n- ".join(corr)})
 
     recent_bits: List[str] = []
     if mem.last_entity:
@@ -1157,7 +1247,10 @@ def build_messages(system_prompt: str, mem: Memory, route: Route, user_text: str
     if recent_bits:
         msgs.append({"role": "system", "content": "Recent context:\n- " + "\n- ".join(recent_bits)})
 
-    msgs.extend(mem.history[route])
+    if mem.all_history:
+        msgs.extend(mem.all_history)
+    else:
+        msgs.extend(mem.history[route])
     msgs.append({"role": "user", "content": user_text})
     return msgs
 
@@ -1185,11 +1278,41 @@ def run_agent(model: str, system_prompt: str, mem: Memory, route: Route, user_te
 
 
 def run_web_refine(model: str, mem: Memory, user_text: str, web_context: str) -> str:
-    msgs = [
+    msgs: List[Dict[str, str]] = [
         {"role": "system", "content": WEB_REFINE_SYSTEM},
-        {"role": "system", "content": f"WEB RESULTS:\n{web_context}"},
-        {"role": "user", "content": user_text},
     ]
+
+    prof_lines: List[str] = []
+    if mem.profile.name:
+        prof_lines.append(f"User name: {mem.profile.name}")
+    if mem.profile.project:
+        prof_lines.append(f"Project: {mem.profile.project}")
+    prof_lines.append(f"User prefers short answers: {'YES' if mem.profile.prefers_short_answers else 'NO'}")
+    if mem.profile.tone:
+        prof_lines.append(f"User tone preference: {mem.profile.tone}")
+    if mem.profile.likes_stories:
+        prof_lines.append("User likes stories: YES")
+    if mem.profile.likes_technical_detail:
+        prof_lines.append("User likes technical detail: YES")
+    if prof_lines:
+        msgs.append({"role": "system", "content": "Known user profile:\n- " + "\n- ".join(prof_lines)})
+
+    recent_bits: List[str] = []
+    if mem.last_entity:
+        recent_bits.append(f"Last entity/topic: {mem.last_entity}")
+    if mem.recent_topics:
+        recent_bits.append("Recent topics: " + ", ".join(mem.recent_topics[-6:]))
+    if mem.last_user and mem.last_assistant:
+        recent_bits.append(f"Last exchange: user='{mem.last_user[:160]}' assistant='{mem.last_assistant[:200]}'")
+    if recent_bits:
+        msgs.append({"role": "system", "content": "Recent context:\n- " + "\n- ".join(recent_bits)})
+
+    # Include a small slice of recent GENERAL history so follow-ups have context
+    if mem.history.get("GENERAL"):
+        msgs.extend(mem.history["GENERAL"][-8:])
+
+    msgs.append({"role": "system", "content": f"WEB RESULTS:\n{web_context}"})
+    msgs.append({"role": "user", "content": user_text})
     if mem.profile.prefers_short_answers:
         options = {"temperature": 0.25, "num_predict": 190}
     else:
@@ -1453,6 +1576,10 @@ class SquidRobotBrain:
         if try_solve_math(user_text) is not None:
             return False, "", "math"
 
+        if _is_minecraft_topic(user_text, self.mem):
+            query = extract_entity_like(user_text) or user_text
+            return True, query, "minecraft_topic"
+
         rule = rule_web_decider(user_text)
         if rule is not None:
             return bool(rule.get("use_web", False)), str(rule.get("query", "")).strip(), str(rule.get("reason", "rule"))
@@ -1468,26 +1595,35 @@ class SquidRobotBrain:
                 query = ent
         return use_web, query, reason
 
-    def _web_search(self, query: str) -> Tuple[List[Dict[str, str]], str]:
+    def _web_search(self, query: str, minecraft_only: bool = False) -> Tuple[List[Dict[str, str]], str]:
+        if minecraft_only:
+            query = f"site:minecraft.wiki {query}".strip()
+
         # 1) DDGS, strict (no wiki)
         results = ddgs_search(query, max_results=WEB_MAX_SNIPPETS, allow_wiki=False)
+        if minecraft_only:
+            results = _filter_results_by_domain(results, MINECRAFT_WIKI_DOMAINS)
         if results:
-            return results, "ddgs"
+            return results, "ddgs_minecraft" if minecraft_only else "ddgs"
 
         # 2) DDGS, allow wiki as last resort (optional)
         if self.allow_wikipedia_last_resort:
             results2 = ddgs_search(query, max_results=WEB_MAX_SNIPPETS, allow_wiki=True)
+            if minecraft_only:
+                results2 = _filter_results_by_domain(results2, MINECRAFT_WIKI_DOMAINS)
             if results2:
-                return results2, "ddgs_wiki_last_resort"
+                return results2, "ddgs_minecraft_last_resort" if minecraft_only else "ddgs_wiki_last_resort"
 
         # 3) SerpApi fallback if key exists
         key = _serpapi_key()
         if key:
             results3 = serpapi_search(query, api_key=key)
+            if minecraft_only:
+                results3 = _filter_results_by_domain(results3, MINECRAFT_WIKI_DOMAINS)
             if results3:
-                return results3, "serpapi"
+                return results3, "serpapi_minecraft" if minecraft_only else "serpapi"
 
-        return [], "no_results"
+        return [], "no_results_minecraft" if minecraft_only else "no_results"
 
     def _run_dream_smp_answer(self, user: str) -> str:
         """
@@ -1511,7 +1647,10 @@ class SquidRobotBrain:
         if prof_lines:
             msgs.append({"role": "system", "content": "Known user profile:\n- " + "\n- ".join(prof_lines)})
 
-        msgs.extend(self.mem.history["GENERAL"])
+        if self.mem.all_history:
+            msgs.extend(self.mem.all_history)
+        else:
+            msgs.extend(self.mem.history["GENERAL"])
         msgs.append({"role": "user", "content": user})
 
         if self.mem.profile.prefers_short_answers:
@@ -1532,7 +1671,37 @@ class SquidRobotBrain:
         if not user:
             return {"text": "", "route": "GENERAL", "used_web": False, "web_provider": "none", "sources": []}
 
+        # Correction follow-up flow
+        if self.mem.awaiting_correction:
+            if self.mem.last_question_for_correction:
+                correction = f"For question '{self.mem.last_question_for_correction}', correct answer: {user}"
+            else:
+                correction = user
+            add_correction(self.mem, correction)
+            self.mem.awaiting_correction = False
+            self.mem.last_question_for_correction = None
+            self.mem.last_answer_for_correction = None
+            answer = "Thanks! I’ll remember that."
+            self.mem.add_turn("GENERAL", user, answer)
+            update_recent_context(self.mem, user, answer, "GENERAL")
+            self.save()
+            self._speak(answer)
+            return {"text": answer, "route": "GENERAL", "used_web": False, "web_provider": "none", "sources": []}
+
         learn_from_user(self.mem, user)
+
+        # User says the answer is wrong -> ask for correction
+        t = user.lower()
+        if re.search(r"\b(answer|that)\s+is\s+wrong\b|\bthat's\s+wrong\b|\bwrong\s+answer\b", t):
+            self.mem.awaiting_correction = True
+            self.mem.last_question_for_correction = self.mem.last_user
+            self.mem.last_answer_for_correction = self.mem.last_assistant
+            answer = "Got it. What is wrong, and what should the correct answer be?"
+            self.mem.add_turn("GENERAL", user, answer)
+            update_recent_context(self.mem, user, answer, "GENERAL")
+            self.save()
+            self._speak(answer)
+            return {"text": answer, "route": "GENERAL", "used_web": False, "web_provider": "none", "sources": []}
 
         # Safety
         if SELF_HARM_PAT.search(user):
@@ -1616,6 +1785,8 @@ class SquidRobotBrain:
         if resolved_entity and not chosen_query:
             chosen_query = resolved_entity
 
+        minecraft_only = _is_minecraft_topic(user, self.mem)
+
         alias_key = question_cache_key(user)
         canonical_key = (
             f"ent:{normalize_text_key(resolved_entity)}"
@@ -1657,7 +1828,7 @@ class SquidRobotBrain:
             sources: List[str] = []
 
             while attempt < max(WEB_RETRY_ATTEMPTS, len(candidates)):
-                results, provider = self._web_search(current_query)
+                results, provider = self._web_search(current_query, minecraft_only=minecraft_only)
                 if not results:
                     # try next candidate if available
                     if attempt < len(candidates) - 1:

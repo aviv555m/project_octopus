@@ -150,7 +150,7 @@ HTML = """
     <div class="header">
       <div>
         <div class="title">Squid AI Web v2</div>
-        <div class="sub">Auto-learning + web refine (no slash commands)</div>
+        <div class="sub">Auto-learning + corrections + Minecraft wiki</div>
       </div>
       <div class="toggles">
         <label><input id="speakToggle" type="checkbox" checked> Speak replies</label>
@@ -206,7 +206,13 @@ HTML = """
           return;
         }
 
-        const meta = data.route ? `route=${data.route}${data.web_provider ? `, web=${data.web_provider}` : ''}` : '';
+        let meta = data.route ? `route=${data.route}${data.web_provider ? `, web=${data.web_provider}` : ''}` : '';
+        if (Array.isArray(data.sources) && data.sources.length) {
+          const hosts = data.sources.map(s => {
+            try { return new URL(s).host; } catch { return s; }
+          }).slice(0, 3);
+          meta = meta ? `${meta}, sources=${hosts.join(', ')}` : `sources=${hosts.join(', ')}`;
+        }
         addMessage(data.answer || '(empty)', 'bot', meta);
 
         if (speakToggle.checked) {
