@@ -150,7 +150,7 @@ HTML = """
     <div class="header">
       <div>
         <div class="title">Squid AI Web v2</div>
-        <div class="sub">Auto-learning + corrections + Minecraft wiki</div>
+        <div class="sub">Auto-learning + corrections + Minecraft wiki + music</div>
       </div>
       <div class="toggles">
         <label><input id="speakToggle" type="checkbox" checked> Speak replies</label>

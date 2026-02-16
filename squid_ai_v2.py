@@ -47,9 +47,8 @@ try:
 except Exception:
     requests = None  # type: ignore
 
-
 Route = Literal["THERAPY", "GENERAL", "CREATIVE"]
-MEMORY_FILE = "octopus_memory.json"
+MEMORY_FILE = "squid_memory.json"
 
 # -----------------------------
 # Web config
@@ -82,6 +81,15 @@ SERPAPI_API_KEY_DEFAULT = ""  # optional baked-in key; env var overrides: SERPAP
 # Minecraft wiki preference
 MINECRAFT_WIKI_DOMAINS = {"minecraft.wiki", "www.minecraft.wiki"}
 
+# Music sources
+MUSIC_DOMAINS = {
+    "musicbrainz.org",
+    "www.musicbrainz.org",
+    "allmusic.com",
+    "www.allmusic.com",
+    "discogs.com",
+    "www.discogs.com",
+}
 
 # -----------------------------
 # Prompts
@@ -212,7 +220,6 @@ Give a best-effort answer even if information is incomplete.
 
 Rules:
 - Keep it short (1-3 sentences).
-- If you are not fully sure, add "(Not fully sure.)" at the end.
 - Do not mention web results or sources.
 """
 
@@ -264,6 +271,9 @@ DREAM_SMP_PAT = re.compile(
 
 # Minecraft topic trigger
 MINECRAFT_PAT = re.compile(r"\b(minecraft|mine\s*craft|mc)\b", re.IGNORECASE)
+
+# Music topic triggers (songs/bands)
+MUSIC_PAT = re.compile(r"\b(song|songs|track|lyrics?|band|bands|album|albums|discography|artist|artists)\b", re.IGNORECASE)
 
 
 def safety_message() -> str:
@@ -389,6 +399,10 @@ def _filter_results_by_domain(results: List[Dict[str, str]], allow_domains: set[
                 out.append(r)
                 break
     return out
+
+
+def _is_music_topic(text: str) -> bool:
+    return bool(MUSIC_PAT.search(text or ""))
 
 
 # -----------------------------
@@ -563,7 +577,7 @@ class Memory:
 
     # Global chat history (across routes)
     all_history: List[Dict[str, str]] = field(default_factory=list)
-    max_turns_all: int = 14  # pairs
+    max_turns_all: int = 40  # pairs
 
     # Correction flow
     awaiting_correction: bool = False
@@ -610,6 +624,12 @@ class Memory:
         self.last_entity = data.get("last_entity")
         self.recent_topics = data.get("recent_topics", []) or []
         self.all_history = data.get("all_history", []) or []
+        # Backfill global history from per-route history if missing
+        if not self.all_history:
+            merged: List[Dict[str, str]] = []
+            for r in ["THERAPY", "GENERAL", "CREATIVE"]:
+                merged.extend(self.history.get(r, []))
+            self.all_history = merged[-(self.max_turns_all * 2):]
         self.awaiting_correction = bool(data.get("awaiting_correction", False))
         self.last_question_for_correction = data.get("last_question_for_correction")
         self.last_answer_for_correction = data.get("last_answer_for_correction")
@@ -1579,6 +1599,8 @@ class SquidRobotBrain:
         if _is_minecraft_topic(user_text, self.mem):
             query = extract_entity_like(user_text) or user_text
             return True, query, "minecraft_topic"
+        if _is_music_topic(user_text):
+            return True, user_text, "music_topic"
 
         rule = rule_web_decider(user_text)
         if rule is not None:
@@ -1595,24 +1617,38 @@ class SquidRobotBrain:
                 query = ent
         return use_web, query, reason
 
-    def _web_search(self, query: str, minecraft_only: bool = False) -> Tuple[List[Dict[str, str]], str]:
+    def _web_search(self, query: str, minecraft_only: bool = False, music_only: bool = False) -> Tuple[List[Dict[str, str]], str]:
         if minecraft_only:
             query = f"site:minecraft.wiki {query}".strip()
+        if music_only:
+            query = f"{query} (site:musicbrainz.org OR site:allmusic.com OR site:discogs.com)".strip()
 
         # 1) DDGS, strict (no wiki)
         results = ddgs_search(query, max_results=WEB_MAX_SNIPPETS, allow_wiki=False)
         if minecraft_only:
             results = _filter_results_by_domain(results, MINECRAFT_WIKI_DOMAINS)
+        if music_only:
+            results = _filter_results_by_domain(results, MUSIC_DOMAINS)
         if results:
-            return results, "ddgs_minecraft" if minecraft_only else "ddgs"
+            if minecraft_only:
+                return results, "ddgs_minecraft"
+            if music_only:
+                return results, "ddgs_music"
+            return results, "ddgs"
 
         # 2) DDGS, allow wiki as last resort (optional)
         if self.allow_wikipedia_last_resort:
             results2 = ddgs_search(query, max_results=WEB_MAX_SNIPPETS, allow_wiki=True)
             if minecraft_only:
                 results2 = _filter_results_by_domain(results2, MINECRAFT_WIKI_DOMAINS)
+            if music_only:
+                results2 = _filter_results_by_domain(results2, MUSIC_DOMAINS)
             if results2:
-                return results2, "ddgs_minecraft_last_resort" if minecraft_only else "ddgs_wiki_last_resort"
+                if minecraft_only:
+                    return results2, "ddgs_minecraft_last_resort"
+                if music_only:
+                    return results2, "ddgs_music_last_resort"
+                return results2, "ddgs_wiki_last_resort"
 
         # 3) SerpApi fallback if key exists
         key = _serpapi_key()
@@ -1620,10 +1656,20 @@ class SquidRobotBrain:
             results3 = serpapi_search(query, api_key=key)
             if minecraft_only:
                 results3 = _filter_results_by_domain(results3, MINECRAFT_WIKI_DOMAINS)
+            if music_only:
+                results3 = _filter_results_by_domain(results3, MUSIC_DOMAINS)
             if results3:
-                return results3, "serpapi_minecraft" if minecraft_only else "serpapi"
+                if minecraft_only:
+                    return results3, "serpapi_minecraft"
+                if music_only:
+                    return results3, "serpapi_music"
+                return results3, "serpapi"
 
-        return [], "no_results_minecraft" if minecraft_only else "no_results"
+        if minecraft_only:
+            return [], "no_results_minecraft"
+        if music_only:
+            return [], "no_results_music"
+        return [], "no_results"
 
     def _run_dream_smp_answer(self, user: str) -> str:
         """
@@ -1666,7 +1712,7 @@ class SquidRobotBrain:
         ans = clean_control_chars(ans).strip()
         return ans
 
-    def reply(self, user_text: str) -> Dict[str, Any]:
+        def reply(self, user_text: str) -> Dict[str, Any]:
         user = clean_control_chars(user_text).strip()
         if not user:
             return {"text": "", "route": "GENERAL", "used_web": False, "web_provider": "none", "sources": []}
@@ -1786,6 +1832,7 @@ class SquidRobotBrain:
             chosen_query = resolved_entity
 
         minecraft_only = _is_minecraft_topic(user, self.mem)
+        music_only = _is_music_topic(user)
 
         alias_key = question_cache_key(user)
         canonical_key = (
@@ -1828,7 +1875,7 @@ class SquidRobotBrain:
             sources: List[str] = []
 
             while attempt < max(WEB_RETRY_ATTEMPTS, len(candidates)):
-                results, provider = self._web_search(current_query, minecraft_only=minecraft_only)
+                results, provider = self._web_search(current_query, minecraft_only=minecraft_only, music_only=music_only)
                 if not results:
                     # try next candidate if available
                     if attempt < len(candidates) - 1:
