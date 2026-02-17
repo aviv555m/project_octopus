@@ -19,8 +19,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Tuple
 from urllib.parse import urlparse
 
-import ollama
-
 # -----------------------------
 # Optional TTS (offline)
 # -----------------------------
@@ -59,6 +57,7 @@ WEB_MAX_SNIPPETS = 6
 WEB_MAX_CONTEXT_CHARS = 2600
 WEB_MAX_ANSWER_CHARS = 700
 WEB_RETRY_ATTEMPTS = 2  # if answer doesn't match question, retry search up to N times
+OPENROUTER_TIMEOUT_SEC = 60.0
 
 # Block sources you don't want (you said “not wiki maybe”)
 # You can edit this list for your robot.
@@ -78,6 +77,14 @@ ALLOW_WIKIPEDIA_LAST_RESORT = True
 
 SERPAPI_ENDPOINT = "https://serpapi.com/search"
 SERPAPI_API_KEY_DEFAULT = ""  # optional baked-in key; env var overrides: SERPAPI_API_KEY
+
+# -----------------------------
+# OpenRouter config
+# -----------------------------
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip()
+OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY"
+OPENROUTER_APP_URL = os.getenv("OPENROUTER_APP_URL", "").strip()
+OPENROUTER_APP_TITLE = os.getenv("OPENROUTER_APP_TITLE", "").strip()
 
 # Minecraft wiki preference
 MINECRAFT_WIKI_DOMAINS = {"minecraft.wiki", "www.minecraft.wiki"}
@@ -860,20 +867,20 @@ def rule_router(text: str) -> Optional[Route]:
 
 def llm_router(model: str, text: str) -> Dict[str, Any]:
     try:
-        resp = ollama.chat(
+        content = openrouter_chat(
             model=model,
             messages=[
                 {"role": "system", "content": ROUTER_SYSTEM},
                 {"role": "user", "content": text},
             ],
             options={"temperature": 0.0},
-            format="json",
+            response_format={"type": "json_object"},
         )
-        return json.loads(resp["message"]["content"].strip())
+        return json.loads(content.strip())
     except Exception:
         pass
 
-    resp = ollama.chat(
+    content = openrouter_chat(
         model=model,
         messages=[
             {"role": "system", "content": ROUTER_SYSTEM},
@@ -881,7 +888,7 @@ def llm_router(model: str, text: str) -> Dict[str, Any]:
         ],
         options={"temperature": 0.0},
     )
-    blob = extract_first_json_object(resp["message"]["content"].strip()) or ""
+    blob = extract_first_json_object(content.strip()) or ""
     try:
         return json.loads(blob)
     except Exception:
@@ -890,20 +897,20 @@ def llm_router(model: str, text: str) -> Dict[str, Any]:
 
 def llm_web_decider(model: str, text: str) -> Dict[str, Any]:
     try:
-        resp = ollama.chat(
+        content = openrouter_chat(
             model=model,
             messages=[
                 {"role": "system", "content": WEB_DECIDER_SYSTEM},
                 {"role": "user", "content": text},
             ],
             options={"temperature": 0.0},
-            format="json",
+            response_format={"type": "json_object"},
         )
-        return json.loads(resp["message"]["content"].strip())
+        return json.loads(content.strip())
     except Exception:
         pass
 
-    resp = ollama.chat(
+    content = openrouter_chat(
         model=model,
         messages=[
             {"role": "system", "content": WEB_DECIDER_SYSTEM},
@@ -911,7 +918,7 @@ def llm_web_decider(model: str, text: str) -> Dict[str, Any]:
         ],
         options={"temperature": 0.0},
     )
-    blob = extract_first_json_object(resp["message"]["content"].strip()) or ""
+    blob = extract_first_json_object(content.strip()) or ""
     try:
         return json.loads(blob)
     except Exception:
@@ -943,13 +950,18 @@ def llm_web_validate(model: str, question: str, answer: str) -> Dict[str, Any]:
         {"role": "user", "content": f"QUESTION:\n{question}\n\nANSWER:\n{answer}"},
     ]
     try:
-        resp = ollama.chat(model=model, messages=msgs, options={"temperature": 0.0}, format="json")
-        return json.loads(resp["message"]["content"].strip())
+        content = openrouter_chat(
+            model=model,
+            messages=msgs,
+            options={"temperature": 0.0},
+            response_format={"type": "json_object"},
+        )
+        return json.loads(content.strip())
     except Exception:
         pass
 
-    resp = ollama.chat(model=model, messages=msgs, options={"temperature": 0.0})
-    blob = extract_first_json_object(resp["message"]["content"].strip()) or ""
+    content = openrouter_chat(model=model, messages=msgs, options={"temperature": 0.0})
+    blob = extract_first_json_object(content.strip()) or ""
     try:
         return json.loads(blob)
     except Exception:
@@ -1280,9 +1292,53 @@ def build_messages(system_prompt: str, mem: Memory, route: Route, user_text: str
     return msgs
 
 
-def ollama_chat(model: str, messages: List[Dict[str, str]], options: Dict[str, Any]) -> str:
-    resp = ollama.chat(model=model, messages=messages, options=options)
-    return resp["message"]["content"].strip()
+def openrouter_chat(
+    model: str,
+    messages: List[Dict[str, str]],
+    options: Dict[str, Any],
+    response_format: Optional[Dict[str, Any]] = None,
+) -> str:
+    if requests is None:
+        raise RuntimeError("requests not available")
+    api_key = os.getenv(OPENROUTER_API_KEY_ENV, "").strip()
+    if not api_key:
+        raise RuntimeError(f"{OPENROUTER_API_KEY_ENV} not set")
+
+    url = f"{OPENROUTER_BASE_URL.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if OPENROUTER_APP_URL:
+        headers["HTTP-Referer"] = OPENROUTER_APP_URL
+    if OPENROUTER_APP_TITLE:
+        headers["X-Title"] = OPENROUTER_APP_TITLE
+
+    payload: Dict[str, Any] = {"model": model, "messages": messages}
+    if response_format is not None:
+        payload["response_format"] = response_format
+
+    if options:
+        if "temperature" in options:
+            payload["temperature"] = options["temperature"]
+        if "num_predict" in options:
+            payload["max_tokens"] = options["num_predict"]
+        if "max_tokens" in options:
+            payload["max_tokens"] = options["max_tokens"]
+        if "stop" in options:
+            payload["stop"] = options["stop"]
+
+    resp = requests.post(url, headers=headers, json=payload, timeout=OPENROUTER_TIMEOUT_SEC)
+    resp.raise_for_status()
+    data = resp.json()
+    content = (
+        data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if isinstance(data, dict)
+        else ""
+    )
+    if not content:
+        raise RuntimeError("openrouter_empty_response")
+    return content.strip()
 
 
 def run_agent(model: str, system_prompt: str, mem: Memory, route: Route, user_text: str) -> str:
@@ -1299,7 +1355,7 @@ def run_agent(model: str, system_prompt: str, mem: Memory, route: Route, user_te
     else:
         options = {"temperature": 0.75, "num_predict": 360}
 
-    return ollama_chat(model=model, messages=messages, options=options)
+    return openrouter_chat(model=model, messages=messages, options=options)
 
 
 def run_web_refine(model: str, mem: Memory, user_text: str, web_context: str) -> str:
@@ -1343,7 +1399,7 @@ def run_web_refine(model: str, mem: Memory, user_text: str, web_context: str) ->
     else:
         options = {"temperature": 0.3, "num_predict": 360}
 
-    ans = ollama_chat(model=model, messages=msgs, options=options).strip()
+    ans = openrouter_chat(model=model, messages=msgs, options=options).strip()
     ans = _strip_sources_like_text(ans)
 
     if len(ans) > WEB_MAX_ANSWER_CHARS:
@@ -1360,7 +1416,7 @@ def run_best_effort(model: str, mem: Memory, user_text: str) -> str:
         options = {"temperature": 0.6, "num_predict": 140}
     else:
         options = {"temperature": 0.7, "num_predict": 220}
-    ans = ollama_chat(model=model, messages=msgs, options=options).strip()
+    ans = openrouter_chat(model=model, messages=msgs, options=options).strip()
     ans = _strip_sources_like_text(ans)
     return ans
 
@@ -1530,13 +1586,13 @@ class SquidRobotBrain:
     def __init__(
         self,
         memory_path: str = MEMORY_FILE,
-        router_model: str = "phi3:mini",
-        therapy_model: str = "llama3.2:3b",
-        general_model: str = "qwen2.5:3b",
-        creative_model: str = "llama3.2:3b",
-        web_refine_model: str = "qwen2.5:3b",
-        web_validate_model: str = "phi3:mini",
-        dream_smp_model: str = "qwen2.5:3b",
+        router_model: str = "openrouter/auto",
+        therapy_model: str = "openrouter/auto",
+        general_model: str = "openrouter/auto",
+        creative_model: str = "openrouter/auto",
+        web_refine_model: str = "openrouter/auto",
+        web_validate_model: str = "openrouter/auto",
+        dream_smp_model: str = "openrouter/auto",
         tts_enabled: bool = False,
         tts_voice_id: Optional[str] = None,
         tts_rate: int = 175,
@@ -1709,7 +1765,7 @@ class SquidRobotBrain:
         else:
             options = {"temperature": 0.65, "num_predict": 320}
 
-        ans = ollama_chat(self.dream_smp_model, msgs, options)
+        ans = openrouter_chat(self.dream_smp_model, msgs, options)
         return clean_control_chars(ans).strip()
 
     def _best_effort_answer(self, user: str) -> str:

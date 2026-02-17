@@ -2,6 +2,7 @@ ollama
 ddgs
 pyttsx3
 requests
+python-dotenv
 fastapi
 pydantic
 uvicorn

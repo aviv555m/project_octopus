@@ -1,6 +1,10 @@
 import os
+from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
+
+# Load .env if present
+load_dotenv()
 
 # Public brain (separate memory file, no name/profile learning)
 from squid_ai_public import SquidRobotBrain
@@ -22,6 +26,13 @@ except Exception:
     tts_rate = 175
 
 brain = SquidRobotBrain(
+    router_model=os.getenv("SQUID_ROUTER_MODEL", "openrouter/auto").strip(),
+    therapy_model=os.getenv("SQUID_THERAPY_MODEL", "openrouter/auto").strip(),
+    general_model=os.getenv("SQUID_GENERAL_MODEL", "openrouter/auto").strip(),
+    creative_model=os.getenv("SQUID_CREATIVE_MODEL", "openrouter/auto").strip(),
+    web_refine_model=os.getenv("SQUID_WEB_REFINE_MODEL", "openrouter/auto").strip(),
+    web_validate_model=os.getenv("SQUID_WEB_VALIDATE_MODEL", "openrouter/auto").strip(),
+    dream_smp_model=os.getenv("SQUID_DREAM_SMP_MODEL", "openrouter/auto").strip(),
     tts_enabled=tts_enabled,  # default off; enable via env
     tts_voice_id=tts_voice_id,
     tts_rate=tts_rate,
