@@ -1,49 +1,38 @@
-﻿Squid AI Public (v2)
-====================
+Squid AI Public (OpenRouter)
+============================
 
-This is the public/demo version of Squid AI. It uses a separate memory file and does not learn or store user profiles (no names, tone preferences, etc).
+This public server uses OpenRouter for all LLM calls.
 
-What’s Included
----------------
-- `squid_ai_public.py`: public brain (separate memory file, profile learning disabled)
-- `squid_server_public.py`: FastAPI server wrapper for the public brain
-- `squid_memory_public.json`: public memory store
-- `web3.py`: server-gated browser UI (calls your API server)
+Quick start
+-----------
+1) Install deps:
+   pip install -r requirements.txt
 
-Prerequisites
--------------
-- Python 3.10+ (3.11 recommended)
-- Optional: `ollama` installed and running if you use local models
+2) Set environment variables:
+   OPENROUTER_API_KEY=your_key_here
+   SQUID_API_KEY=your_server_api_key
 
-Setup
------
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
+3) Run the server:
+   python squid_server_public.py
 
-Run the Public API Server
--------------------------
-```powershell
-$env:SQUID_API_KEY="YOUR_PUBLIC_KEY"
-uvicorn squid_server_public:app --host 0.0.0.0 --port 8788
-```
+Optional model overrides
+------------------------
+Defaults are `openrouter/auto` for all model roles. You can override any of these:
+SQUID_ROUTER_MODEL
+SQUID_THERAPY_MODEL
+SQUID_GENERAL_MODEL
+SQUID_CREATIVE_MODEL
+SQUID_WEB_REFINE_MODEL
+SQUID_WEB_VALIDATE_MODEL
+SQUID_DREAM_SMP_MODEL
 
-Web UI (Local)
--------------
-```powershell
-python .\web3.py
-```
-Then open: http://127.0.0.1:5002
-
-Web UI (GitHub Pages)
----------------------
-`web3.py` contains a full HTML page inside the `HTML` string. Copy that HTML into an `index.html` and host it on GitHub Pages.
-
-The UI calls `POST /chat` on your server. Your server must allow CORS for your GitHub Pages domain.
+Optional OpenRouter headers
+---------------------------
+OPENROUTER_APP_URL
+OPENROUTER_APP_TITLE
+OPENROUTER_BASE_URL
 
 Notes
 -----
-- Public mode does NOT store names or profile preferences.
-- Use a separate API key for the public server.
+- `squid_memory_public.json` is the public memory store.
+- `squid_ai_public.py` contains the OpenRouter client and chat logic.
