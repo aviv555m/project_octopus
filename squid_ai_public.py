@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import sqlite3
 import tempfile
 import threading
 import time
@@ -46,7 +47,8 @@ except Exception:
     requests = None  # type: ignore
 
 Route = Literal["THERAPY", "GENERAL", "CREATIVE"]
-MEMORY_FILE = "squid_memory_public.json"
+MEMORY_FILE = "squid_memory_public.db"
+LEGACY_MEMORY_FILE_JSON = "squid_memory_public.json"
 PUBLIC_MODE = True
 
 # -----------------------------
@@ -537,6 +539,94 @@ def try_solve_math(user_text: str) -> Optional[str]:
 
 
 # -----------------------------
+# Storage helpers
+# -----------------------------
+def _normalize_memory_db_path(path: str) -> str:
+    p = (path or "").strip() or MEMORY_FILE
+    if p.lower().endswith(".json"):
+        return p[:-5] + ".db"
+    return p
+
+
+def _memory_table_ddl() -> str:
+    return """
+CREATE TABLE IF NOT EXISTS memory_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at REAL NOT NULL
+)
+""".strip()
+
+
+def _read_memory_payload_from_db(path: str) -> Optional[Dict[str, Any]]:
+    if not os.path.exists(path):
+        return None
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(_memory_table_ddl())
+        row = conn.execute("SELECT value FROM memory_state WHERE key='memory' LIMIT 1").fetchone()
+        if not row or not row[0]:
+            return None
+        parsed = json.loads(row[0])
+        if isinstance(parsed, dict):
+            return parsed
+        return None
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+
+def _write_memory_payload_to_db(path: str, payload: Dict[str, Any]) -> None:
+    db_path = _normalize_memory_db_path(path)
+    folder = os.path.dirname(db_path)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(_memory_table_ddl())
+        now_ts = time.time()
+        value = json.dumps(payload, ensure_ascii=False)
+        conn.execute(
+            """
+            INSERT INTO memory_state(key, value, updated_at)
+            VALUES(?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+              value=excluded.value,
+              updated_at=excluded.updated_at
+            """,
+            ("memory", value, now_ts),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _read_legacy_memory_json(path: str) -> Optional[Dict[str, Any]]:
+    candidates: List[str] = []
+    if path.lower().endswith(".db"):
+        candidates.append(path[:-3] + ".json")
+    candidates.append(LEGACY_MEMORY_FILE_JSON)
+
+    seen = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        if not os.path.exists(candidate):
+            continue
+        try:
+            with open(candidate, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            continue
+    return None
+
+
+# -----------------------------
 # Memory / Profile
 # -----------------------------
 @dataclass
@@ -602,11 +692,9 @@ class Memory:
     max_turns_per_route: int = 10  # pairs
     web_cache_ttl_sec: int = 60 * 60 * 24 * 21  # 21 days
 
-    def load(self, path: str = MEMORY_FILE) -> None:
-        if not os.path.exists(path):
+    def _apply_payload(self, data: Dict[str, Any]) -> None:
+        if not isinstance(data, dict):
             return
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
 
         try:
             self.profile = UserProfile(**(data.get("profile", {}) or {}))
@@ -661,8 +749,8 @@ class Memory:
                 except Exception:
                     continue
 
-    def save(self, path: str = MEMORY_FILE) -> None:
-        data = {
+    def _to_payload(self) -> Dict[str, Any]:
+        return {
             "profile": self.profile.__dict__,
             "history": self.history,
             "auto_notes": self.auto_notes,
@@ -693,8 +781,22 @@ class Memory:
                 for k, v in self.web_cache.items()
             },
         }
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def load(self, path: str = MEMORY_FILE) -> None:
+        db_path = _normalize_memory_db_path(path)
+        payload = _read_memory_payload_from_db(db_path)
+        migrated = False
+        if payload is None:
+            payload = _read_legacy_memory_json(db_path)
+            migrated = payload is not None
+        if payload is None:
+            return
+        self._apply_payload(payload)
+        if migrated:
+            _write_memory_payload_to_db(db_path, self._to_payload())
+
+    def save(self, path: str = MEMORY_FILE) -> None:
+        _write_memory_payload_to_db(path, self._to_payload())
 
     def add_turn(self, route: Route, user: str, assistant: str) -> None:
         self.history[route].append({"role": "user", "content": user})
@@ -1599,9 +1701,9 @@ class SquidRobotBrain:
         web_enabled: bool = True,
         allow_wikipedia_last_resort: bool = ALLOW_WIKIPEDIA_LAST_RESORT,
     ):
-        self.memory_path = memory_path
+        self.memory_path = _normalize_memory_db_path(memory_path)
         self.mem = Memory()
-        self.mem.load(memory_path)
+        self.mem.load(self.memory_path)
 
         # override runtime settings
         self.mem.tts_enabled = bool(tts_enabled)
